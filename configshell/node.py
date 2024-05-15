@@ -17,11 +17,14 @@ under the License.
 
 import inspect
 import re
+from contextlib import suppress
+
 
 class ExecutionError(Exception):
     pass
 
-class ConfigNode(object):
+
+class ConfigNode:
     '''
     The ConfigNode class defines a common skeleton to be used by specific
     implementation. It is "purely virtual" (sorry for using non-pythonic
@@ -82,20 +85,19 @@ class ConfigNode(object):
         @type shell: ConfigShell
         '''
         self._name = name
-        self._children = set([])
+        self._children = set()
         if parent is None:
             if shell is None:
                 raise ValueError("A root ConfigNode must have a shell.")
-            else:
-                self._parent = None
-                self._shell = shell
-                shell.attach_root_node(self)
+
+            self._parent = None
+            self._shell = shell
+            shell.attach_root_node(self)
+        elif shell is None:
+            self._parent = parent
+            self._shell = None
         else:
-            if shell is None:
-                self._parent = parent
-                self._shell = None
-            else:
-                raise ValueError("A non-root ConfigNode can't have a shell.")
+            raise ValueError("A non-root ConfigNode can't have a shell.")
 
         if self._parent is not None:
             for sibling in self._parent._children:
@@ -328,7 +330,7 @@ class ConfigNode(object):
             else:
                 return 'default'
 
-        type_enum = self.shell.con.colors + ['default']
+        type_enum = [*self.shell.con.colors, 'default']
         syntax = '|'.join(type_enum)
         if value is None:
             if enum:
@@ -365,7 +367,7 @@ class ConfigNode(object):
             else:
                 return 'none'
 
-        type_enum = self.shell.con.colors + ['none']
+        type_enum = [*self.shell.con.colors, 'none']
         syntax = '|'.join(type_enum)
         if value is None:
             if enum:
@@ -379,7 +381,6 @@ class ConfigNode(object):
         else:
             raise ValueError("Syntax error, '%s' is not %s"
                              % (value, syntax))
-
 
     # User interface get/set methods
 
@@ -424,7 +425,7 @@ class ConfigNode(object):
         '''
         return self.shell.prefs[parameter]
 
-    def ui_eval_param(self, ui_value, type, default):
+    def ui_eval_param(self, ui_value, type_, default):
         '''
         Evaluates a user-provided parameter value using a given type helper.
         If the parameter value is None, the default will be returned. If the
@@ -433,15 +434,15 @@ class ConfigNode(object):
 
         @param ui_value: The user provided parameter value.
         @type ui_value: str
-        @param type: The ui_type to be used
-        @type type: str
+        @param type_: The ui_type to be used
+        @type type_: str
         @param default: The default value to return.
         @type default: any
         @return: The evaluated parameter value.
         @rtype: depends on type
         @raise ExecutionError: If evaluation fails.
         '''
-        type_method = self.get_type_method(type)
+        type_method = self.get_type_method(type_)
         if ui_value is None:
             return default
         else:
@@ -452,11 +453,11 @@ class ConfigNode(object):
             else:
                 return value
 
-    def get_type_method(self, type):
+    def get_type_method(self, type_):
         '''
         Returns the type helper method matching the type name.
         '''
-        return getattr(self, "%s%s" % (self.ui_type_method_prefix, type))
+        return getattr(self, "%s%s" % (self.ui_type_method_prefix, type_))
 
     # User interface commands
 
@@ -628,10 +629,7 @@ class ConfigNode(object):
             p_def = self.get_group_param(group, param)
             type_method = self.get_type_method(p_def['type'])
             value = type_method(value, reverse=True)
-            if p_def['writable']:
-                writable = ""
-            else:
-                writable = "[ro]"
+            writable = '' if p_def['writable'] else '[ro]'
             self.shell.con.display("%s=%s %s"
                                    % (param, value, writable))
 
@@ -739,9 +737,7 @@ class ConfigNode(object):
         else:
             root_call = False
 
-        if do_list:
-            color = None
-        elif not level % 3:
+        if do_list or not level % 3:
             color = None
         elif not (level - 1) % 3:
             color = 'blue'
@@ -755,10 +751,7 @@ class ConfigNode(object):
         else:
             styles = ['bold']
 
-        if do_list:
-            name = root.name
-        else:
-            name = self.shell.con.render_text(root.name, color, styles=styles)
+        name = root.name if do_list else self.shell.con.render_text(root.name, color, styles=styles)
         name_len = len(root.name)
 
         (description, is_healthy) = root.summary()
@@ -772,10 +765,7 @@ class ConfigNode(object):
 
         description_len = len(description) + 3
 
-        if do_list:
-            summary = '['
-        else:
-            summary = self.shell.con.render_text(' [', styles=['bold'])
+        summary = '[' if do_list else self.shell.con.render_text(' [', styles=['bold'])
 
         if is_healthy is True:
             if do_list:
@@ -800,8 +790,7 @@ class ConfigNode(object):
             m = re.search(r'(.*?)(\d+$)', str(s))
             if m:
                 return (m.group(1), int(m.group(2)))
-            else:
-                return (str(s), 0)
+            return (str(s), 0)
 
         # Sort ending numbers numerically, so we get e.g. "lun1, lun2, lun10"
         # instead of "lun1, lun10, lun2".
@@ -809,15 +798,9 @@ class ConfigNode(object):
         line = ""
 
         for pipe in margin[:-1]:
-            if pipe:
-                line = line + "|".ljust(node_shift)
-            else:
-                line = line + ''.ljust(node_shift)
+            line = line + '|'.ljust(node_shift) if pipe else line + ''.ljust(node_shift)
 
-        if self.shell.prefs['tree_round_nodes']:
-            node_char = 'o'
-        else:
-            node_char = '+'
+        node_char = 'o' if self.shell.prefs['tree_round_nodes'] else '+'
         line += node_char.ljust(node_length, '-')
         line += ' '
         margin_len = len(line)
@@ -841,14 +824,14 @@ class ConfigNode(object):
            and not do_list:
             tree = ''
             for child in children:
-                tree = tree + self._render_tree(child, [False], depth)
+                tree += self._render_tree(child, [False], depth)
         else:
             tree = line + '\n'
             if depth is None or depth > 0:
                 if depth is not None:
-                    depth = depth - 1
+                    depth -= 1
                 for i in range(len(children)):
-                    margin.append(i<len(children)-1)
+                    margin.append(i < len(children) - 1)
                     if do_list:
                         new_lines, new_paths = \
                                 self._render_tree(children[i], margin, depth,
@@ -856,8 +839,7 @@ class ConfigNode(object):
                         lines.extend(new_lines)
                         paths.extend(new_paths)
                     else:
-                        tree = tree \
-                                + self._render_tree(children[i], margin, depth)
+                        tree += self._render_tree(children[i], margin, depth)
                     margin.pop()
 
         if root_call:
@@ -865,18 +847,14 @@ class ConfigNode(object):
                 return (lines, paths)
             else:
                 return tree[:-1]
+        elif do_list:
+            return (lines, paths)
         else:
-            if do_list:
-                return (lines, paths)
-            else:
-                return tree
+            return tree
 
-
-    def ui_complete_ls(self, parameters, text, current_param):
+    def ui_complete_ls(self, text, current_param):
         '''
         Parameter auto-completion method for user command ls.
-        @param parameters: Parameters on the command line.
-        @type parameters: dict
         @param text: Current text of parameter being typed by the user.
         @type text: str
         @param current_param: Name of parameter to complete.
@@ -886,7 +864,7 @@ class ConfigNode(object):
         '''
         if current_param == 'path':
             (basedir, slash, partial_name) = text.rpartition('/')
-            basedir = basedir + slash
+            basedir += slash
             target = self.get_node(basedir)
             names = [child.name for child in target.children]
             completions = []
@@ -898,9 +876,8 @@ class ConfigNode(object):
                         completions.append("%s%s/" % (basedir, name))
                     else:
                         completions.append("%s%s" % (basedir, name))
-            if len(completions) == 1:
-                if not self.get_node(completions[0]).children:
-                    completions[0] = completions[0].rstrip('/') + ' '
+            if len(completions) == 1 and not self.get_node(completions[0]).children:
+                completions[0] = completions[0].rstrip('/') + ' '
 
             # Bookmarks
             bookmarks = ['@' + bookmark for bookmark
@@ -920,9 +897,10 @@ class ConfigNode(object):
                 except ValueError:
                     self.shell.log.debug("Text is not a number.")
                     return []
-            return [ text + number for number
+            return [text + number for number
                     in [str(num) for num in range(10)]
                     if (text + number).startswith(text)]
+        return None
 
     def ui_command_cd(self, path=None):
         '''
@@ -973,8 +951,7 @@ class ConfigNode(object):
             exists = False
             while not exists:
                 if self.shell.prefs['path_history_index'] > 0:
-                    self.shell.prefs['path_history_index'] = \
-                            self.shell.prefs['path_history_index'] - 1
+                    self.shell.prefs['path_history_index'] -= 1
                     index = self.shell.prefs['path_history_index']
                     path = self.shell.prefs['path_history'][index]
                     try:
@@ -1001,8 +978,7 @@ class ConfigNode(object):
             while not exists:
                 if self.shell.prefs['path_history_index'] \
                    < len(self.shell.prefs['path_history']) - 1:
-                    self.shell.prefs['path_history_index'] = \
-                            self.shell.prefs['path_history_index'] + 1
+                    self.shell.prefs['path_history_index'] += 1
                     index = self.shell.prefs['path_history_index']
                     path = self.shell.prefs['path_history'][index]
                     try:
@@ -1037,7 +1013,7 @@ class ConfigNode(object):
         if target_node.path != self.shell.prefs['path_history'][index]:
             # Truncate the hostory to retain current path as last one
             self.shell.prefs['path_history'] = \
-                    self.shell.prefs['path_history'][:index+1]
+                    self.shell.prefs['path_history'][:index + 1]
             # Append the new path and update the index
             self.shell.prefs['path_history'].append(target_node.path)
             self.shell.prefs['path_history_index'] = index + 1
@@ -1070,19 +1046,17 @@ class ConfigNode(object):
         listbox = urwid.ListBox(content)
         frame = urwid.Frame(listbox)
 
-        def handle_input(input, raw):
-            for key in input:
-                widget, pos = content.get_focus()
+        def handle_input(input_):
+            for key in input_:
+                _widget, pos = content.get_focus()
                 if key == 'up':
                     if pos > 0:
-                        content.set_focus(pos-1)
+                        content.set_focus(pos - 1)
                 elif key == 'down':
-                    try:
-                        content.set_focus(pos+1)
-                    except IndexError:
-                        pass
+                    with suppress(IndexError):
+                        content.set_focus(pos + 1)
                 elif key == 'enter':
-                    raise urwid.ExitMainLoop()
+                    raise urwid.ExitMainLoop
 
         content.set_focus(start_pos)
         loop = urwid.MainLoop(frame, palette, input_filter=handle_input)
@@ -1103,9 +1077,10 @@ class ConfigNode(object):
         '''
         if current_param == 'path':
             completions = self.ui_complete_ls(parameters, text, current_param)
-            completions.extend([nav for nav in ['<', '>']
+            completions.extend([nav for nav in ('<', '>')
                                 if nav.startswith(text)])
             return completions
+        return None
 
     def ui_command_help(self, topic=None):
         '''
@@ -1156,11 +1131,9 @@ class ConfigNode(object):
         msg += "\n"
         self.shell.con.epy_write(msg)
 
-    def ui_complete_help(self, parameters, text, current_param):
+    def ui_complete_help(self, text, current_param):
         '''
         Parameter auto-completion method for user command help.
-        @param parameters: Parameters on the command line.
-        @type parameters: dict
         @param text: Current text of parameter being typed by the user.
         @type text: str
         @param current_param: Name of parameter to complete.
@@ -1233,6 +1206,7 @@ class ConfigNode(object):
             self.shell.prefs.save()
             self.shell.log.info("Bookmarked %s as %s."
                                 % (self.path, bookmark))
+            return None
         elif action == 'del' and bookmark:
             if bookmark not in self.shell.prefs['bookmarks']:
                 raise ExecutionError("No such bookmark %s." % bookmark)
@@ -1241,6 +1215,7 @@ class ConfigNode(object):
             # No way Prefs is going to account for that deletion
             self.shell.prefs.save()
             self.shell.log.info("Deleted bookmark %s." % bookmark)
+            return None
         elif action == 'go' and bookmark:
             if bookmark not in self.shell.prefs['bookmarks']:
                 raise ExecutionError("No such bookmark %s." % bookmark)
@@ -1262,6 +1237,7 @@ class ConfigNode(object):
                     underline = ''.ljust(len(bookmark), '-')
                     bookmarks += "%s\n%s\n%s\n\n" % (bookmark, underline, path)
             self.shell.con.epy_write(bookmarks)
+            return None
         else:
             raise ExecutionError("Syntax error, see 'help bookmarks'.")
 
@@ -1278,14 +1254,13 @@ class ConfigNode(object):
         @rtype: list of str
         '''
         if current_param == 'action':
-            completions = [action for action in ['add', 'del', 'go', 'show']
+            completions = [action for action in ('add', 'del', 'go', 'show')
                            if action.startswith(text)]
         elif current_param == 'bookmark':
-            if 'action' in parameters:
-                if parameters['action'] not in ['show', 'add']:
-                    completions = [mark for mark
-                                   in self.shell.prefs['bookmarks']
-                                   if mark.startswith(text)]
+            if 'action' in parameters and parameters['action'] not in {'show', 'add'}:
+                completions = [mark for mark
+                               in self.shell.prefs['bookmarks']
+                               if mark.startswith(text)]
         else:
             completions = []
 
@@ -1375,7 +1350,7 @@ class ConfigNode(object):
         '''
         return ('', None)
 
-    def execute_command(self, command, pparams=[], kparams={}):
+    def execute_command(self, command, pparams=None, kparams=None):
         '''
         Execute a user command on the node. This works by finding out which is
         the support command method, using ConfigNode naming convention:
@@ -1393,6 +1368,10 @@ class ConfigNode(object):
         they are interpreted by ConfigShell.
         @rtype: str or ConfigNode or None
         '''
+        if kparams is None:
+            kparams = {}
+        if pparams is None:
+            pparams = []
         self.shell.log.debug("Executing command %s " % command
                              + "with pparams %s " % pparams
                              + "and kparams %s." % kparams)
@@ -1422,10 +1401,7 @@ class ConfigNode(object):
         pp = spec.varargs
         kw = spec.varkw
 
-        if spec.defaults is None:
-            nb_opt_params = 0
-        else:
-            nb_opt_params = len(spec.defaults)
+        nb_opt_params = 0 if spec.defaults is None else len(spec.defaults)
         nb_max_params = len(args)
         nb_min_params = nb_max_params - nb_opt_params
 
@@ -1455,7 +1431,7 @@ class ConfigNode(object):
             raise ExecutionError(
                 "Missing required parameter %s"
                 % missing_params[0])
-        elif missing_params:
+        if missing_params:
             raise ExecutionError(
                 "Missing required parameters %s"
                 % ", ".join("'%s'" % missing for missing in missing_params))
@@ -1465,7 +1441,7 @@ class ConfigNode(object):
                 raise ExecutionError(
                     "Unexpected keyword parameter '%s'."
                     % unexpected_keywords[0])
-            elif unexpected_keywords:
+            if unexpected_keywords:
                 raise ExecutionError(
                     "Unexpected keyword parameters %s."
                     % ", ".join("'%s'" % kw for kw in unexpected_keywords))
@@ -1577,10 +1553,7 @@ class ConfigNode(object):
         method = self.get_command_method(command)
         spec = inspect.getfullargspec(method)
         parameters = spec.args[1:]
-        if spec.defaults is None:
-            num_defaults = 0
-        else:
-            num_defaults = len(spec.defaults)
+        num_defaults = 0 if spec.defaults is None else len(spec.defaults)
 
         if num_defaults != 0:
             required_parameters = parameters[:-num_defaults]
@@ -1632,14 +1605,8 @@ class ConfigNode(object):
         method = self.get_command_method(command)
         spec = inspect.getfullargspec(method)
         parameters = spec.args[1:]
-        if spec.varargs is not None:
-            free_pparams = spec.varargs
-        else:
-            free_pparams = False
-        if spec.varkw is not None:
-            free_kparams = spec.varkw
-        else:
-            free_kparams = False
+        free_pparams = spec.varargs if spec.varargs is not None else False
+        free_kparams = spec.varkw if spec.varkw is not None else False
         self.shell.log.debug("Signature is %s, %s, %s."
                              % (str(parameters),
                                 str(free_pparams),
@@ -1656,7 +1623,7 @@ class ConfigNode(object):
         else:
             return self.parent.get_root()
 
-    def define_config_group_param(self, group, param, type,
+    def define_config_group_param(self, group, param, type_,
                                   description=None, writable=True):
         '''
         Helper to define configuration group parameters.
@@ -1676,13 +1643,13 @@ class ConfigNode(object):
             description = "The %s %s parameter." % (param, group)
 
         # Fail early if the type and set/get helpers don't exist
-        self.get_type_method(type)
+        self.get_type_method(type_)
         self.get_group_getter(group)
         if writable:
             self.get_group_setter(group)
 
         self._configuration_groups[group][param] = \
-                [type, description, writable]
+                [type_, description, writable]
 
     def list_config_groups(self):
         '''
@@ -1704,7 +1671,7 @@ class ConfigNode(object):
         else:
             params = []
             for p_name, p_def in self._configuration_groups[group].items():
-                (p_type, p_description, p_writable) = p_def
+                (_p_type, _p_description, p_writable) = p_def
                 if writable is not None and p_writable != writable:
                     continue
                 params.append(p_name)
@@ -1731,8 +1698,8 @@ class ConfigNode(object):
         (p_type, p_description, p_writable) = \
                 self._configuration_groups[group][param]
 
-        return dict(name=param, group=group, type=p_type,
-                    description=p_description, writable=p_writable)
+        return {'name': param, 'group': group, 'type': p_type,
+                    'description': p_description, 'writable': p_writable}
 
     shell = property(_get_shell,
                      doc="Gets the shell attached to ConfigNode tree.")
@@ -1754,10 +1721,7 @@ class ConfigNode(object):
         @return: Wether or not we are a root node.
         @rtype: bool
         '''
-        if self._parent is None:
-            return True
-        else:
-            return False
+        return self._parent is None
 
     def get_child(self, name):
         '''
@@ -1770,9 +1734,8 @@ class ConfigNode(object):
         for child in self._children:
             if child.name == name:
                 return child
-        else:
-            raise ValueError("No such path %s/%s"
-                             % (self.path.rstrip('/'), name))
+        raise ValueError("No such path %s/%s"
+                         % (self.path.rstrip('/'), name))
 
     def remove_child(self, child):
         '''
@@ -1805,7 +1768,6 @@ class ConfigNode(object):
             else:
                 return self.get_child(name)
 
-
         # Cleanup the path
         if path is None or path == '':
             path = '.'
@@ -1823,7 +1785,6 @@ class ConfigNode(object):
         if len(path) > 1:
             path = path.rstrip(self._path_separator)
         self.shell.log.debug("Looking for path '%s'" % path)
-
 
         # Absolute path - make relative and pass on to root node
         if path.startswith(self._path_separator):

@@ -16,19 +16,27 @@ under the License.
 '''
 
 import os
+import signal
 import sys
-from pyparsing import (alphanums, Empty, Group, locatedExpr,
-                       OneOrMore, Optional, ParseResults, Regex,
-                       Suppress, Word)
+from contextlib import suppress
 
-from . import console
-from . import log
-from . import prefs
+from pyparsing import (
+    OneOrMore,
+    Optional,
+    ParseResults,
+    Regex,
+    Suppress,
+    Word,
+    alphanums,
+    locatedExpr,
+)
+
+from . import console, log, prefs
 from .node import ConfigNode, ExecutionError
 
+
 # A fix for frozen packages
-import signal
-def handle_sigint(signum, frame):
+def handle_sigint(signum, frame):  # noqa: ARG001 TODO
     '''
     Raise KeyboardInterrupt when we get a SIGINT.
     This is normally done by python, but even after patching
@@ -37,30 +45,29 @@ def handle_sigint(signum, frame):
     '''
     raise KeyboardInterrupt
 
-try:
+
+# In a thread, this fails
+with suppress(Exception):
     signal.signal(signal.SIGINT, handle_sigint)
-except Exception:
-    # In a thread, this fails
-    pass
 
 if sys.stdout.isatty():
     import readline
-    tty=True
+    tty = True
 else:
-    tty=False
+    tty = False
 
     # remember the original setting
-    oldTerm = os.environ.get('TERM')
+    old_term = os.environ.get('TERM')
     os.environ['TERM'] = ''
 
     import readline
 
     # restore the orignal TERM setting
-    if oldTerm != None:
-        os.environ['TERM'] = oldTerm
-    del oldTerm
+    if old_term is not None:
+        os.environ['TERM'] = old_term
+    del old_term
 
-class ConfigShell(object):
+class ConfigShell:
     '''
     This is a simple CLI command interpreter that can be used both in
     interactive or non-interactive modes.
@@ -92,7 +99,7 @@ class ConfigShell(object):
                      'tree_max_depth': 0,
                      'tree_status_mode': True,
                      'tree_round_nodes': True,
-                     'tree_show_root': True
+                     'tree_show_root': True,
                     }
 
     _completion_help_topic = ''
@@ -112,22 +119,22 @@ class ConfigShell(object):
 
         # Grammar of the command line
         command = locatedExpr(Word(alphanums + '_'))('command')
-        var = Word(alphanums + '?;&*$!#,=_\+/.<>()~@:-%[]')
+        var = Word(alphanums + r'?;&*$!#,=_\+/.<>()~@:-%[]')
         value = var
-        keyword = Word(alphanums + '_\-')
+        keyword = Word(alphanums + r'_\-')
         kparam = locatedExpr(keyword + Suppress('=') + Optional(value, default=''))('kparams*')
         pparam = locatedExpr(var)('pparams*')
         parameter = kparam | pparam
         parameters = OneOrMore(parameter)
         bookmark = Regex('@([A-Za-z0-9:_.]|-)+')
-        pathstd = Regex('([A-Za-z0-9:_.\[\]]|-)*' + '/' + '([A-Za-z0-9:_.\[\]/]|-)*') \
+        pathstd = Regex(r'([A-Za-z0-9:_.\[\]]|-)*' + '/' + r'([A-Za-z0-9:_.\[\]/]|-)*') \
                 | '..' | '.'
         path = locatedExpr(bookmark | pathstd | '*')('path')
         parser = Optional(path) + Optional(command) + Optional(parameters)
         self._parser = parser
 
         if tty:
-            readline.set_completer_delims('\t\n ~!#$^&(){}\|;\'",?')
+            readline.set_completer_delims('\t\n ~!#$^&(){}\\|;\'",?')
             readline.set_completion_display_matches_hook(
                 self._display_completions)
 
@@ -144,7 +151,7 @@ class ConfigShell(object):
             if not os.path.isfile(self._cmd_history):
                 try:
                     open(self._cmd_history, 'w').close()
-                except:
+                except OSError:
                     self.log.warning("Cannot create history file %s, "
                                      % self._cmd_history
                                      + "command history will not be saved.")
@@ -153,9 +160,8 @@ class ConfigShell(object):
             if os.path.isfile(self._cmd_history) and tty:
                 try:
                     readline.read_history_file(self._cmd_history)
-                except IOError:
-                    self.log.warning("Cannot read command history file %s."
-                                     % self._cmd_history)
+                except OSError:
+                    self.log.warning(f"Cannot read command history file {self._cmd_history}.")
 
             if self.prefs['logfile'] is None:
                 self.prefs['logfile'] = preferences_dir + '/' + 'log.txt'
@@ -168,7 +174,7 @@ class ConfigShell(object):
 
         try:
             self.prefs.load()
-        except IOError:
+        except OSError:
             self.log.warning("Could not load preferences file %s."
                              % self._prefs_file)
 
@@ -180,7 +186,7 @@ class ConfigShell(object):
 
     # Private methods
 
-    def _display_completions(self, substitution, matches, max_length):
+    def _display_completions(self, substitution, matches, max_length):  # noqa: ARG002 TODO
         '''
         Display the completions. Invoked by readline.
         @param substitution: string to complete
@@ -233,13 +239,10 @@ class ConfigShell(object):
         # Display the possible completions in columns
         self.con.raw_write("\n")
         if matches:
-            if max_length < width:
-                nr_cols = width // max_length
-            else:
-                nr_cols = 1
+            nr_cols = width // max_length if max_length < width else 1
 
             for i in range(0, len(matches), nr_cols):
-                self.con.raw_write(''.join(matches[i:i+nr_cols]))
+                self.con.raw_write(''.join(matches[i:i + nr_cols]))
                 self.con.raw_write('\n')
 
         # Display the prompt and the command line
@@ -250,7 +253,7 @@ class ConfigShell(object):
         y_pos = self.con.get_cursor_xy()[1]
         self.con.set_cursor_xy(x_orig, y_pos)
 
-    def _complete_token_command(self, text, path, command):
+    def _complete_token_command(self, text, path, command):  # noqa: ARG002 TODO
         '''
         Completes a partial command token, which could also be the beginning
         of a path.
@@ -269,11 +272,8 @@ class ConfigShell(object):
         self.log.debug("Completing command token among %s" % str(commands))
 
         # Start with the possible commands
-        for command in commands:
-            if command.startswith(text):
-                completions.append(command)
-        if len(completions) == 1:
-            completions[0] = completions[0] + ' '
+        completions = [command + ' ' if len(completions) == 1 else command for command in commands
+                       if command.startswith(text)]
 
         # No identified path yet on the command line, this might be it
         if not path:
@@ -302,9 +302,9 @@ class ConfigShell(object):
                         self.con.render_text(
                             'command', self.prefs['color_command'])
             if len(path_completions) == 1 and \
-               not path_completions[0][-1] in [' ', '*'] and \
+               path_completions[0][-1] not in {' ', '*'} and \
                not self._current_node.get_node(path_completions[0]).children:
-                path_completions[0] = path_completions[0] + ' '
+                path_completions[0] += ' '
             completions.extend(path_completions)
         else:
             self._current_token = \
@@ -332,16 +332,16 @@ class ConfigShell(object):
         '''
         completions = []
         if text.endswith('.'):
-            text = text + '/'
+            text += '/'
         (basedir, slash, partial_name) = text.rpartition('/')
         self.log.debug("Got basedir=%s, partial_name=%s"
                        % (basedir, partial_name))
-        basedir = basedir + slash
+        basedir += slash
         target = self._current_node.get_node(basedir)
         names = [child.name for child in target.children]
 
         # Iterall path completion
-        if names and partial_name in ['', '*']:
+        if names and partial_name in ('', '*'):  # noqa SIM102 - readability
             # Not suggesting iterall to end a path that has only one
             # child allows for fast TAB action to add the only child's
             # name.
@@ -366,7 +366,7 @@ class ConfigShell(object):
 
         if len(completions) == 1:
             self.log.debug("One completion left.")
-            if not completions[0].endswith("* "):
+            if not completions[0].endswith("* "):  # noqa SIM102 - readability
                 if not self._current_node.get_node(completions[0]).children:
                     completions[0] = completions[0].rstrip('/') + ' '
 
@@ -401,8 +401,7 @@ class ConfigShell(object):
         for index in range(len(pparams)):
             if index < len(cmd_params):
                 current_parameters[cmd_params[index]] = pparams[index]
-        for key, value in kparams.items():
-            current_parameters[key] = value
+        current_parameters = dict(kparams)
         self._completion_help_topic = command
         completion_method = target.get_completion_method(command)
         self.log.debug("Command %s accepts parameters %s."
@@ -430,10 +429,7 @@ class ConfigShell(object):
 
         # If we do, find out which one we are completing
         if pparam_ok:
-            if not text:
-                pparam_index = len(pparams)
-            else:
-                pparam_index = len(pparams) - 1
+            pparam_index = len(pparams) if not text else len(pparams) - 1
             self._current_parameter = cmd_params[pparam_index]
             self.log.debug("Completing pparam %s." % self._current_parameter)
             if completion_method:
@@ -443,13 +439,10 @@ class ConfigShell(object):
                     completions.extend(pparam_completions)
 
         # Add the keywords for parameters not already on the line
-        if text:
-            offset = 1
-        else:
-            offset = 0
-        keyword_completions = [param + '=' \
-                       for param in cmd_params[len(pparams)-offset:] \
-                       if param not in kparams \
+        offset = 1 if text else 0
+        keyword_completions = [param + '='
+                       for param in cmd_params[len(pparams) - offset:]
+                       if param not in kparams
                        if param.startswith(text)]
 
         self.log.debug("Possible pparam values are %s."
@@ -461,7 +454,7 @@ class ConfigShell(object):
             if self._current_parameter:
                 self._current_token = \
                         self.con.render_text(
-                            self._current_parameter, \
+                            self._current_parameter,
                             self.prefs['color_parameter']) \
                         + '|'  \
                         + self.con.render_text(
@@ -470,14 +463,13 @@ class ConfigShell(object):
                 self._current_token = \
                         self.con.render_text(
                             'keyword=', self.prefs['color_keyword'])
+        elif self._current_parameter:
+            self._current_token = \
+                    self.con.render_text(
+                        self._current_parameter,
+                        self.prefs['color_parameter'])
         else:
-            if self._current_parameter:
-                self._current_token = \
-                        self.con.render_text(
-                            self._current_parameter,
-                            self.prefs['color_parameter'])
-            else:
-                self._current_token = ''
+            self._current_token = ''
 
         completions.extend(keyword_completions)
 
@@ -505,7 +497,7 @@ class ConfigShell(object):
                         self._current_parameter = 'free_parameter'
 
                 if do_free_kparams:
-                    if not 'keyword=' in self._current_token:
+                    if 'keyword=' not in self._current_token:
                         self._current_token = \
                                 self.con.render_text(
                                     'keyword=', self.prefs['color_keyword']) \
@@ -541,7 +533,7 @@ class ConfigShell(object):
         self.log.debug("Command %s accepts parameters %s."
                        % (command, cmd_params))
 
-        (keyword, sep, current_value) = text.partition('=')
+        (keyword, _sep, current_value) = text.partition('=')
         self.log.debug("Completing '%s' for kparam %s"
                        % (current_value, keyword))
 
@@ -549,8 +541,7 @@ class ConfigShell(object):
         current_parameters = {}
         for index in range(len(pparams)):
             current_parameters[cmd_params[index]] = pparams[index]
-        for key, value in kparams.items():
-            current_parameters[key] = value
+        current_parameters = dict(kparams.items())
         completion_method = target.get_completion_method(command)
         if completion_method:
             completions = completion_method(
@@ -616,8 +607,7 @@ class ConfigShell(object):
                                               pparams, kparams,
                                               text, current_token)
 
-            self.log.debug("Returning completions %s to readline."
-                           % str(self._current_completions))
+            self.log.debug(f"Returning completions {self._current_completions!s} to readline.")
 
         if state < len(self._current_completions):
             return self._current_completions[state]
@@ -671,7 +661,6 @@ class ConfigShell(object):
                     cpl_path = children[0].path
         else:
             cpl_path = path
-
 
         if current_token == 'command':
             completions = self._complete_token_command(text, cpl_path, command)
@@ -729,7 +718,7 @@ class ConfigShell(object):
             if self._save_history:
                 try:
                     readline.write_history_file(self._cmd_history)
-                except IOError:
+                except OSError:
                     self.log.warning(
                         "Cannot write to command history file %s." \
                         % self._cmd_history)
@@ -807,10 +796,7 @@ class ConfigShell(object):
             raise ExecutionError(str(msg))
 
         result = None
-        if not iterall:
-            targets = [target]
-        else:
-            targets = target.children
+        targets = [target] if not iterall else target.children
         for target in targets:
             if iterall:
                 self.con.display("[%s]" % target.path)
@@ -851,10 +837,10 @@ class ConfigShell(object):
         @type exit_on_error: bool
         '''
         try:
-            script_fd = open(script_path, 'r')
+            script_fd = open(script_path)
             self.run_stdin(script_fd, exit_on_error)
-        except IOError as msg:
-            raise IOError(msg)
+        except OSError as msg:
+            raise OSError(msg)
         finally:
             script_fd.close()
 
@@ -868,15 +854,15 @@ class ConfigShell(object):
         @type exit_on_error: bool
         '''
         self._current_node = self._root_node
-        for cmdline in file_descriptor:
-            try:
+        try:
+            for cmdline in file_descriptor:
                 self.run_cmdline(cmdline.strip())
-            except Exception as msg:
-                self.log.error(msg)
-                if exit_on_error is True:
-                    raise ExecutionError("Aborting run on error.")
+        except Exception as msg:
+            self.log.error(msg)
+            if exit_on_error is True:
+                raise ExecutionError("Aborting run on error.")
 
-                self.log.exception("Keep running after an error.")
+            self.log.exception("Keep running after an error.")
 
     def run_interactive(self):
         '''
@@ -884,14 +870,13 @@ class ConfigShell(object):
         '''
         history = self.prefs['path_history']
         index = self.prefs['path_history_index']
-        if history and index:
-            if index < len(history):
-                try:
-                    target = self._root_node.get_node(history[index])
-                except ValueError:
-                    self._current_node = self._root_node
-                else:
-                    self._current_node = target
+        if history and index and index < len(history):
+            try:
+                target = self._root_node.get_node(history[index])
+            except ValueError:
+                self._current_node = self._root_node
+            else:
+                self._current_node = target
 
         while True:
             try:
