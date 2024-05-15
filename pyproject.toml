@@ -58,6 +58,7 @@ select = [
     "FA",   # flake8-future-annotations
     "ISC",  # flake8-implicit-str-concat
     "ICN",  # flake8-import-conventions
+    "LOG",  # flake8-logging
     "PIE",  # flake8-pie
     "Q003", # flake8-quotes avoidable-escaped-quote
     "Q004", # flake8-quotes unnecessary-escaped-quote
@@ -81,7 +82,6 @@ ignore = [
     "S105",    # Possible hardcoded password assigned
     "RET505",  # Unnecessary `else` after `return` statement
     "PLW2901", # TODO `for` loop variable overwritten by assignment target
-    "UP031",   # TODO Use format specifiers instead of percent format
 ]
 
 [tool.ruff.lint.per-file-ignores]
