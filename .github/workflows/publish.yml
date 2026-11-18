@@ -20,7 +20,7 @@ jobs:
 
     environment:
       name: pypi
-      url: https://pypi.org/p/configshell-fb
+      url: https://pypi.org/p/configshell
 
     steps:
       - uses: actions/checkout@v4

@@ -13,7 +13,7 @@ Epoch:          1
 Version:        0.0.0
 Release:        %autorelease
 URL:            https://github.com/open-iscsi/configshell-fb
-Source:         %{pypi_source configshell_fb}
+Source:         %{pypi_source configshell}
 BuildArch:      noarch
 
 BuildRequires:  python3-devel
@@ -26,11 +26,15 @@ command-line interfaces.
 
 %package -n python3-configshell
 Summary:        A framework to implement simple but nice CLIs
+# Published on PyPI as configshell-fb until version 2.0.3. Keep providing
+# the old name for packages that still depend on it.
+Provides:       python3dist(configshell-fb) = %{version}
+Provides:       python%{python3_version}dist(configshell-fb) = %{version}
 
 %description -n python3-configshell %_description
 
 %prep
-%autosetup -n configshell_fb-%{version}
+%autosetup -n configshell-%{version}
 
 %generate_buildrequires
 %pyproject_buildrequires
