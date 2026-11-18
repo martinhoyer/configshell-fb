@@ -9,7 +9,7 @@
 # See documentation: https://packit.dev/docs/configuration
 
 specfile_path: python-configshell.spec
-upstream_package_name: configshell-fb
+upstream_package_name: configshell
 downstream_package_name: python-configshell
 upstream_tag_template: v{version}
 
